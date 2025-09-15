@@ -1,0 +1,51 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+
+// 解决中文输出乱码
+extern "C" {
+    void SetConsoleOutputCP(int cp);
+}
+
+using namespace std;
+
+// 模板排序函数：支持任意类型的排序
+template <typename T>
+void templateSort(vector<T>& vec) {
+    sort(vec.begin(), vec.end());
+}
+
+// 模板打印函数：支持任意类型的打印
+template <typename T>
+void printVector(const vector<T>& vec) {
+    for (size_t i = 0; i < vec.size(); ++i) {
+        if (i > 0) {
+            cout << " ";
+        }
+        cout << vec[i];
+    }
+    cout << endl;
+}
+
+int main() {
+    // 设置UTF-8编码以显示中文
+    SetConsoleOutputCP(65001);
+    
+    // 读取数据规模N
+    int N;
+    cin >> N;
+    
+    // 创建数组并读取数据
+    vector<int> arr(N);
+    for (int i = 0; i < N; ++i) {
+        cin >> arr[i];
+    }
+    
+    // 调用模板函数排序
+    templateSort(arr);
+    
+    // 调用模板函数打印结果
+    printVector(arr);
+    
+    return 0;
+}
