@@ -1,0 +1,32 @@
+#include <iostream>
+
+// 递归函数计算阶乘
+extern "C" long long factorial(int n) {
+    // 基本情况：0! 和 1! 都等于 1
+    if (n <= 1) {
+        return 1;
+    }
+    // 递归调用：n! = n * (n-1)!
+    return n * factorial(n - 1);
+}
+
+// 递归函数进行输入验证
+extern "C" int getValidInput() {
+    int n;
+    std::cin >> n;
+    
+    // 验证输入是否在1到12之间
+    if (n >= 1 && n <= 12) {
+        return n;
+    } else {
+        // 递归调用，重新获取输入
+        return getValidInput();
+    }
+}
+
+int main() {
+    int n = getValidInput();
+    // 计算并输出阶乘结果
+    std::cout << factorial(n) << std::endl;
+    return 0;
+}
