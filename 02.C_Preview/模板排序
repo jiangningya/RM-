@@ -28,9 +28,6 @@ void printVector(const vector<T>& vec) {
 }
 
 int main() {
-    // 设置UTF-8编码以显示中文
-    SetConsoleOutputCP(65001);
-    
     // 读取数据规模N
     int N;
     cin >> N;
