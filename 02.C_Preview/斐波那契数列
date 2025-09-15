@@ -1,0 +1,50 @@
+#include <iostream>
+using namespace std;
+
+// 计算斐波那契数列中的第a项的值
+long long feibonaqi(int a) {
+    // 斐波那契数列的前两项都是1
+    if (a == 1 || a == 2) {
+        return 1;
+    }
+    
+    // 使用变量存储前两个数
+    int fib1 = 1;  // 第1项
+    int fib2 = 1;  // 第2项
+    int current;   // 当前计算的项
+    
+    // 从第3项开始计算，直到第a项
+    for (int i = 3; i <= a; i++) {
+        current = fib1 + fib2;
+        fib1 = fib2;
+        fib2 = current;
+    }
+    
+    return fib2;
+}
+
+int main() {
+    int n;  // 测试数据的组数
+    cin >> n;
+    
+    // 动态数组存储所有输入数据
+    int* inputs = new int[n];
+    
+    // 读取所有输入数据
+    for (int i = 0; i < n; i++) {
+        cin >> inputs[i];
+    }
+    
+    // 输出三个空行分隔
+    cout << "\n\n\n";
+    
+    // 统一计算并输出所有结果
+    for (int i = 0; i < n; i++) {
+        cout << feibonaqi(inputs[i]) << endl;
+    }
+    
+    // 释放动态分配的内存
+    delete[] inputs;
+    
+    return 0;
+}
