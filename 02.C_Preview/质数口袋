@@ -1,0 +1,51 @@
+#include <iostream>
+#include <vector>
+
+// 判断一个数是否为质数
+bool isPrime(int n) {
+    if (n <= 1) return false;
+    if (n <= 3) return true;
+    if (n % 2 == 0 || n % 3 == 0) return false;
+    for (int i = 5; i * i <= n; i += 6) {
+        if (n % i == 0 || n % (i + 2) == 0) return false;
+    }
+    return true;
+}
+
+int main()
+{
+    int L;
+    // 输入验证，确保1 ≤ L ≤ 10^5
+    while (true) {
+        std::cin >> L;
+        if (L >= 1 && L <= 100000) {
+            break;
+        }
+    }
+    
+    std::vector<int> primes;
+    int sum = 0;
+    int num = 2;
+    
+    // 从2开始依次判断并添加质数，直到总和超过L
+    while (true) {
+        if (isPrime(num)) {
+            if (sum + num > L) {
+                break; // 如果加入当前质数会超过L，则停止
+            }
+            primes.push_back(num);
+            sum += num;
+        }
+        num++;
+    }
+    
+    // 输出所有能装下的质数
+    for (int prime : primes) {
+        std::cout << prime << std::endl;
+    }
+    
+    // 输出质数的个数
+    std::cout << primes.size() << std::endl;
+    
+    return 0;
+}
