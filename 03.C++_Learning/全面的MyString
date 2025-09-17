@@ -31,7 +31,146 @@ void strcat(char * d,const char * s)
 }
 class MyString
 {
-// 在此处补充你的代码
+private:
+    char *str;
+    int length;
+    
+    void init(const char *s) {
+        if(s) {
+            length = strlen(s);
+            str = new char[length + 1];
+            strcpy(str, s);
+        } else {
+            length = 0;
+            str = new char[1];
+            str[0] = '\0';
+        }
+    }
+    
+public:
+    // 构造函数
+    MyString() {
+        length = 0;
+        str = new char[1];
+        str[0] = '\0';
+    }
+    
+    MyString(const char *s) {
+        init(s);
+    }
+    
+    // 拷贝构造函数
+    MyString(const MyString &s) {
+        init(s.str);
+    }
+    
+    // 析构函数
+    ~MyString() {
+        delete[] str;
+    }
+    
+    // 赋值运算符重载
+    MyString& operator=(const MyString &s) {
+        if(this != &s) {
+            delete[] str;
+            init(s.str);
+        }
+        return *this;
+    }
+    
+    MyString& operator=(const char *s) {
+        delete[] str;
+        init(s);
+        return *this;
+    }
+    
+    // 加法运算符重载
+    MyString operator+(const MyString &s) const {
+        char *temp = new char[length + s.length + 1];
+        strcpy(temp, str);
+        strcat(temp, s.str);
+        MyString result(temp);
+        delete[] temp;
+        return result;
+    }
+    
+    MyString operator+(const char *s) const {
+        char *temp = new char[length + strlen(s) + 1];
+        strcpy(temp, str);
+        strcat(temp, s);
+        MyString result(temp);
+        delete[] temp;
+        return result;
+    }
+    
+    // 友元函数，实现字符串在前面的加法
+    friend MyString operator+(const char *s, const MyString &ms) {
+        char *temp = new char[strlen(s) + ms.length + 1];
+        strcpy(temp, s);
+        strcat(temp, ms.str);
+        MyString result(temp);
+        delete[] temp;
+        return result;
+    }
+    
+    // += 运算符重载
+    MyString& operator+=(const char *s) {
+        int newLength = length + strlen(s);
+        char *temp = new char[newLength + 1];
+        strcpy(temp, str);
+        strcat(temp, s);
+        delete[] str;
+        str = temp;
+        length = newLength;
+        return *this;
+    }
+    
+    MyString& operator+=(const MyString &s) {
+        int newLength = length + s.length;
+        char *temp = new char[newLength + 1];
+        strcpy(temp, str);
+        strcat(temp, s.str);
+        delete[] str;
+        str = temp;
+        length = newLength;
+        return *this;
+    }
+    
+    // 比较运算符重载
+    bool operator<(const MyString &s) const {
+        return strcmp(str, s.str) < 0;
+    }
+    
+    bool operator==(const MyString &s) const {
+        return strcmp(str, s.str) == 0;
+    }
+    
+    bool operator>(const MyString &s) const {
+        return strcmp(str, s.str) > 0;
+    }
+    
+    // 下标运算符重载
+    char& operator[](int index) {
+        return str[index];
+    }
+    
+    // 函数调用运算符重载，用于获取子串
+    MyString operator()(int start, int len) const {
+        char *temp = new char[len + 1];
+        for(int i = 0; i < len; i++) {
+            temp[i] = str[start + i];
+        }
+        temp[len] = '\0';
+        MyString result(temp);
+        delete[] temp;
+        return result;
+    }
+    
+    // 输出运算符重载
+    friend ostream& operator<<(ostream &os, const MyString &s) {
+        os << s.str;
+        return os;
+    }
 };
 
 
