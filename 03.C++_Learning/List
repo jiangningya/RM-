@@ -1,0 +1,63 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <string>
+using namespace std;
+
+const int MAX_ID = 10000;
+
+vector<int> sorted_list[MAX_ID + 1];
+vector<int> unsorted_list[MAX_ID + 1];
+
+int main() {
+    int n;
+    cin >> n;
+    while (n--) {
+        string cmd;
+        cin >> cmd;
+        if (cmd == "new") {
+            int id;
+            cin >> id;
+            sorted_list[id].clear();
+            unsorted_list[id].clear();
+        } else if (cmd == "add") {
+            int id, num;
+            cin >> id >> num;
+            unsorted_list[id].push_back(num);
+        } else if (cmd == "merge") {
+            int id1, id2;
+            cin >> id1 >> id2;
+            if (id1 == id2) continue;
+            unsorted_list[id1].insert(unsorted_list[id1].end(), sorted_list[id2].begin(), sorted_list[id2].end());
+            unsorted_list[id1].insert(unsorted_list[id1].end(), unsorted_list[id2].begin(), unsorted_list[id2].end());
+            sorted_list[id2].clear();
+            unsorted_list[id2].clear();
+        } else if (cmd == "unique") {
+            int id;
+            cin >> id;
+            sort(unsorted_list[id].begin(), unsorted_list[id].end());
+            vector<int> new_sorted;
+            new_sorted.reserve(sorted_list[id].size() + unsorted_list[id].size());
+            merge(sorted_list[id].begin(), sorted_list[id].end(), unsorted_list[id].begin(), unsorted_list[id].end(), back_inserter(new_sorted));
+            auto last = unique(new_sorted.begin(), new_sorted.end());
+            new_sorted.erase(last, new_sorted.end());
+            sorted_list[id] = new_sorted;
+            unsorted_list[id].clear();
+        } else if (cmd == "out") {
+            int id;
+            cin >> id;
+            sort(unsorted_list[id].begin(), unsorted_list[id].end());
+            vector<int> new_sorted;
+            new_sorted.reserve(sorted_list[id].size() + unsorted_list[id].size());
+            merge(sorted_list[id].begin(), sorted_list[id].end(), unsorted_list[id].begin(), unsorted_list[id].end(), back_inserter(new_sorted));
+            for (size_t i = 0; i < new_sorted.size(); ++i) {
+                if (i > 0) cout << " ";
+                cout << new_sorted[i];
+            }
+            cout << endl;
+            sorted_list[id] = new_sorted;
+            unsorted_list[id].clear();
+        }
+    }
+    return 0;
+}
