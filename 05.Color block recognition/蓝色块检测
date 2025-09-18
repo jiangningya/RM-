@@ -1,0 +1,100 @@
+#include <rclcpp/rclcpp.hpp>
+#include <opencv2/opencv.hpp>
+#include <string>
+
+using namespace std::chrono_literals;
+using namespace cv;
+
+class ColorDetectorNode : public rclcpp::Node {
+public:
+    ColorDetectorNode() : Node("color_detector") {
+        image_path_ = "/home/zhoujiang/桌面/camera_live.jpg";  // 与摄像头节点保存路径一致
+        RCLCPP_INFO(this->get_logger(), "读取图片路径：%s", image_path_.c_str());
+
+        create_windows();  // 创建显示窗口
+
+        // 定时器：30ms/帧，定期处理图片
+        timer_ = this->create_wall_timer(
+            30ms,
+            std::bind(&ColorDetectorNode::process_image, this)
+        );
+    }
+
+    ~ColorDetectorNode() {
+        destroyAllWindows();
+    }
+
+private:
+    void create_windows() {
+        // 创建可调整大小的窗口
+        namedWindow("Original Camera", WINDOW_NORMAL | WINDOW_KEEPRATIO);
+        namedWindow("Binary Mask", WINDOW_NORMAL | WINDOW_KEEPRATIO);
+        namedWindow("Color Block Detection", WINDOW_NORMAL | WINDOW_KEEPRATIO);
+
+        // 调整窗口大小和位置
+        resizeWindow("Original Camera", 640, 480);
+        resizeWindow("Binary Mask", 640, 480);
+        resizeWindow("Color Block Detection", 640, 480);
+        moveWindow("Original Camera", 100, 100);
+        moveWindow("Binary Mask", 800, 100);
+        moveWindow("Color Block Detection", 100, 600);
+
+        // 初始化窗口显示（黑色临时图像）
+        Mat temp(480, 640, CV_8UC3, Scalar(0,0,0));
+        imshow("Original Camera", temp);
+        imshow("Binary Mask", temp);
+        imshow("Color Block Detection", temp);
+        waitKey(200);  // 等待窗口绘制
+    }
+
+    void process_image() {
+        Mat frame = imread(image_path_);
+        if (frame.empty()) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "未读取到图片");
+            return;
+        }
+
+        Mat hsv_frame, binary_mask;
+        cvtColor(frame, hsv_frame, COLOR_BGR2HSV);  // BGR转HSV
+
+        // 【关键修改1：扩大蓝色HSV范围，确保更多蓝色被检测】
+        Scalar lower_blue = Scalar(90, 40, 40);    // 降低H、S、V的低阈值
+        Scalar upper_blue = Scalar(150, 255, 255); // 提高H的高阈值，覆盖更多蓝色
+
+        inRange(hsv_frame, lower_blue, upper_blue, binary_mask);  // 生成二值化掩码
+
+        // 【关键修改2：增强形态学操作，让零散白色区域连接成完整色块】
+        Mat kernel = getStructuringElement(MORPH_RECT, Size(7, 7)); // 增大核尺寸
+        dilate(binary_mask, binary_mask, kernel);  // 先膨胀（让白色区域扩大、连接）
+        erode(binary_mask, binary_mask, kernel);   // 再腐蚀（消除膨胀带来的边缘毛刺）
+
+        // 绘制检测结果
+        Mat detection_frame = frame.clone();
+        std::vector<std::vector<Point>> contours;
+        findContours(binary_mask, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+        for (size_t i = 0; i < contours.size(); i++) {
+            if (contourArea(contours[i]) < 200) continue; // 过滤小噪点
+            Rect rect = boundingRect(contours[i]);
+            rectangle(detection_frame, rect, Scalar(0,255,0), 2);
+            Point center(rect.x + rect.width/2, rect.y + rect.height/2);
+            circle(detection_frame, center, 3, Scalar(0,0,255), -1);
+        }
+
+        // 显示所有窗口
+        imshow("Original Camera", frame);
+        imshow("Binary Mask", binary_mask);
+        imshow("Color Block Detection", detection_frame);
+        waitKey(1);
+    }
+
+    rclcpp::TimerBase::SharedPtr timer_;
+    std::string image_path_;
+};
+
+int main(int argc, char* argv[]) {
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<ColorDetectorNode>());
+    rclcpp::shutdown();
+    return 0;
+}
