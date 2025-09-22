@@ -1,1 +1,465 @@
 
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <cstdint>
+#include <cmath>
+#include <stdexcept>
+#include <numeric>
+
+struct Vec3 {
+    float x, y, z;  // x:横向, z:纵向（水平平面）; y:高度（垂直）
+    Vec3(float x_ = 0, float y_ = 0, float z_ = 0) : x(x_), y(y_), z(z_) {}
+};
+
+struct Triangle {
+    Vec3 vertices[3];
+    Vec3 normal;
+    float avgHeight;  // 三角形平均高度（Y轴）
+    Triangle() : avgHeight(0) {}
+    Triangle(const Vec3& v1, const Vec3& v2, const Vec3& v3, const Vec3& n) {
+        vertices[0] = v1;
+        vertices[1] = v2;
+        vertices[2] = v3;
+        normal = n;
+        avgHeight = (v1.y + v2.y + v3.y) / 3.0f;  // Y轴为高度
+    }
+};
+
+class STLParser {
+private:
+    std::vector<Triangle> triangles;
+    float x_min, x_max;  // 水平横向范围
+    float z_min, z_max;  // 水平纵向范围
+    float y_min, y_max;  // 高度范围
+    float groundHeight;  // 地面高度（Y轴）
+
+    void updateBounds(const Vec3& v) {
+        x_min = std::min(x_min, v.x);
+        x_max = std::max(x_max, v.x);
+        z_min = std::min(z_min, v.z);
+        z_max = std::max(z_max, v.z);
+        y_min = std::min(y_min, v.y);
+        y_max = std::max(y_max, v.y);
+    }
+
+    // 计算地面高度（取最低20%三角形的平均Y值）
+    void calculateGroundHeight() {
+        if (triangles.empty()) {
+            groundHeight = 0;
+            return;
+        }
+        std::vector<float> heights;
+        for (const auto& tri : triangles) {
+            heights.push_back(tri.avgHeight);
+        }
+        std::sort(heights.begin(), heights.end());
+        size_t sampleSize = std::max(1UL, heights.size() / 5);
+        groundHeight = std::accumulate(heights.begin(), heights.begin() + sampleSize, 0.0f) / sampleSize;
+        std::cout << "地面高度（Y轴）: " << groundHeight << "米\n";
+    }
+
+    bool isBinarySTL(const std::string& filename) {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file) return false;
+        file.seekg(0, std::ios::end);
+        std::streampos size = file.tellg();
+        if (size < 84) return false;
+        file.seekg(80);
+        uint32_t triangleCount;
+        file.read(reinterpret_cast<char*>(&triangleCount), 4);
+        return (84 + triangleCount * 50) == size;
+    }
+
+    bool parseBinary(const std::string& filename) {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file) {
+            throw std::runtime_error("无法打开文件: " + filename);
+        }
+        char header[80];
+        file.read(header, 80);
+        uint32_t triangleCount;
+        file.read(reinterpret_cast<char*>(&triangleCount), 4);
+
+        x_min = z_min = y_min = 1e9;
+        x_max = z_max = y_max = -1e9;
+        triangles.reserve(triangleCount);
+
+        for (uint32_t i = 0; i < triangleCount; ++i) {
+            float normal[3];
+            file.read(reinterpret_cast<char*>(normal), 12);
+            float v1[3], v2[3], v3[3];
+            file.read(reinterpret_cast<char*>(v1), 12);
+            file.read(reinterpret_cast<char*>(v2), 12);
+            file.read(reinterpret_cast<char*>(v3), 12);
+            char attr[2];
+            file.read(attr, 2);
+
+            // 【俯视图核心映射】XZ为水平平面，Y为高度
+            Vec3 n(normal[0], normal[1], normal[2]);
+            Vec3 p1(v1[0], v1[1], v1[2]);  // x:横向, y:高度, z:纵向
+            Vec3 p2(v2[0], v2[1], v2[2]);
+            Vec3 p3(v3[0], v3[1], v3[2]);
+
+            triangles.emplace_back(p1, p2, p3, n);
+            updateBounds(p1);
+            updateBounds(p2);
+            updateBounds(p3);
+        }
+
+        calculateGroundHeight();
+        return true;
+    }
+
+    bool parseASCII(const std::string& filename) {
+        std::ifstream file(filename);
+        if (!file) {
+            throw std::runtime_error("无法打开文件: " + filename);
+        }
+        std::string line;
+        Vec3 normal, v1, v2, v3;
+        int vertexCount = 0;
+        bool inFacet = false;
+
+        x_min = z_min = y_min = 1e9;
+        x_max = z_max = y_max = -1e9;
+
+        while (std::getline(file, line)) {
+            size_t pos = line.find("facet normal");
+            if (pos != std::string::npos) {
+                inFacet = true;
+                float nx, ny, nz;
+                sscanf(line.c_str() + pos + 12, "%f %f %f", &nx, &ny, &nz);
+                normal = Vec3(nx, ny, nz);
+                vertexCount = 0;
+                continue;
+            }
+
+            if (inFacet && (pos = line.find("vertex")) != std::string::npos) {
+                float x, y, z;
+                sscanf(line.c_str() + pos + 6, "%f %f %f", &x, &y, &z);
+
+                // 【俯视图核心映射】XZ为水平平面，Y为高度
+                Vec3 v(x, y, z);  // x:横向, y:高度, z:纵向
+
+                if (vertexCount == 0) v1 = v;
+                else if (vertexCount == 1) v2 = v;
+                else if (vertexCount == 2) v3 = v;
+                vertexCount++;
+            }
+
+            if (inFacet && (pos = line.find("endfacet")) != std::string::npos) {
+                inFacet = false;
+                if (vertexCount == 3) {
+                    triangles.emplace_back(v1, v2, v3, normal);
+                    updateBounds(v1);
+                    updateBounds(v2);
+                    updateBounds(v3);
+                }
+            }
+        }
+
+        calculateGroundHeight();
+        return true;
+    }
+
+public:
+    STLParser() : x_min(1e9), x_max(-1e9), z_min(1e9), z_max(-1e9), y_min(1e9), y_max(-1e9), groundHeight(0) {}
+
+    bool parse(const std::string& filename) {
+        try {
+            if (isBinarySTL(filename)) {
+                return parseBinary(filename);
+            } else {
+                return parseASCII(filename);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "解析错误: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    const std::vector<Triangle>& getTriangles() const { return triangles; }
+    float getXMin() const { return x_min; }
+    float getXMax() const { return x_max; }
+    float getZMin() const { return z_min; }
+    float getZMax() const { return z_max; }
+    float getYMin() const { return y_min; }
+    float getYMax() const { return y_max; }
+    float getGroundHeight() const { return groundHeight; }
+    float getWidth() const { return x_max - x_min; }    // X方向宽度
+    float getDepth() const { return z_max - z_min; }    // Z方向深度
+};
+
+class GridMapGenerator {
+private:
+    const STLParser& stlParser;
+    float resolution;
+    float heightThreshold;  // 高于地面的高度阈值（Y轴）
+    std::vector<unsigned char> grid;
+    int cols, rows;  // cols: X方向列数, rows: Z方向行数
+
+    // 点(px,pz)是否在XZ平面的三角形内（俯视图核心判断）
+    bool isPointInTriangle(float px, float pz, const Triangle& tri) const {
+        auto sign = [](float x1, float z1, float x2, float z2, float px, float pz) {
+            return (px - x2) * (z1 - z2) - (pz - z2) * (x1 - x2);
+        };
+
+        const Vec3& v1 = tri.vertices[0];
+        const Vec3& v2 = tri.vertices[1];
+        const Vec3& v3 = tri.vertices[2];
+
+        float d1 = sign(v1.x, v1.z, v2.x, v2.z, px, pz);
+        float d2 = sign(v2.x, v2.z, v3.x, v3.z, px, pz);
+        float d3 = sign(v3.x, v3.z, v1.x, v1.z, px, pz);
+
+        bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+        bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+        return !(has_neg && has_pos);
+    }
+
+    // 点(px,pz)是否在XZ平面的栅格内
+    bool pointInGrid(float px, float pz, float x1, float z1, float x2, float z2) const {
+        return (px >= x1 && px <= x2 && pz >= z1 && pz <= z2);
+    }
+
+    // 线段（XZ平面）与矩形栅格是否相交
+    bool lineIntersectsRect(float x1, float z1, float x2, float z2, 
+                           float rx1, float rz1, float rx2, float rz2) const {
+        auto onSegment = [](float x, float z, float x1, float z1, float x2, float z2) {
+            return (x <= std::max(x1, x2) && x >= std::min(x1, x2) &&
+                    z <= std::max(z1, z2) && z >= std::min(z1, z2));
+        };
+
+        auto ccw = [](float x1, float z1, float x2, float z2, float x3, float z3) {
+            return (z3 - z1) * (x2 - x1) > (z2 - z1) * (x3 - x1);
+        };
+
+        auto segmentsIntersect = [&](float x1, float z1, float x2, float z2, 
+                                    float x3, float z3, float x4, float z4) {
+            bool a = ccw(x1, z1, x3, z3, x4, z4);
+            bool b = ccw(x2, z2, x3, z3, x4, z4);
+            bool c = ccw(x1, z1, x2, z2, x3, z3);
+            bool d = ccw(x1, z1, x2, z2, x4, z4);
+            if (a != b && c != d) return true;
+            if (a == false && b == false && c == false && d == false) {
+                return onSegment(x1, z1, x3, z3, x4, z4) || onSegment(x3, z3, x1, z1, x2, z2);
+            }
+            return false;
+        };
+
+        // 检查线段与栅格四条边是否相交
+        return segmentsIntersect(x1, z1, x2, z2, rx1, rz1, rx2, rz1) ||  // 栅格下边
+               segmentsIntersect(x1, z1, x2, z2, rx2, rz1, rx2, rz2) ||  // 栅格右边
+               segmentsIntersect(x1, z1, x2, z2, rx1, rz2, rx2, rz2) ||  // 栅格上边
+               segmentsIntersect(x1, z1, x2, z2, rx1, rz1, rx1, rz2);    // 栅格左边
+    }
+
+    // 三角形（XZ平面）与栅格是否有交集
+    bool triangleIntersectsGrid(const Triangle& tri, float x1, float z1, float x2, float z2) const {
+        const Vec3& v1 = tri.vertices[0];
+        const Vec3& v2 = tri.vertices[1];
+        const Vec3& v3 = tri.vertices[2];
+
+        // 1. 三角形顶点在栅格内
+        if (pointInGrid(v1.x, v1.z, x1, z1, x2, z2)) return true;
+        if (pointInGrid(v2.x, v2.z, x1, z1, x2, z2)) return true;
+        if (pointInGrid(v3.x, v3.z, x1, z1, x2, z2)) return true;
+
+        // 2. 三角形边与栅格边相交
+        if (lineIntersectsRect(v1.x, v1.z, v2.x, v2.z, x1, z1, x2, z2)) return true;
+        if (lineIntersectsRect(v2.x, v2.z, v3.x, v3.z, x1, z1, x2, z2)) return true;
+        if (lineIntersectsRect(v3.x, v3.z, v1.x, v1.z, x1, z1, x2, z2)) return true;
+
+        // 3. 栅格顶点在三角形内
+        if (isPointInTriangle(x1, z1, tri)) return true;
+        if (isPointInTriangle(x2, z1, tri)) return true;
+        if (isPointInTriangle(x1, z2, tri)) return true;
+        if (isPointInTriangle(x2, z2, tri)) return true;
+
+        return false;
+    }
+
+    // 后处理：消除噪点和毛边
+    void postProcess() {
+        std::vector<unsigned char> temp = grid;
+
+        // 消除孤立黑色像素
+        for (int i = 1; i < rows - 1; ++i) {
+            for (int j = 1; j < cols - 1; ++j) {
+                int idx = i * cols + j;
+                if (grid[idx] == 0) {
+                    int count = 0;
+                    for (int di = -1; di <= 1; ++di) {
+                        for (int dj = -1; dj <= 1; ++dj) {
+                            if (di == 0 && dj == 0) continue;
+                            int nidx = (i + di) * cols + (j + dj);
+                            if (grid[nidx] == 0) count++;
+                        }
+                    }
+                    if (count == 0) temp[idx] = 255;
+                }
+            }
+        }
+
+        // 填补小空隙
+        grid = temp;
+        for (int i = 1; i < rows - 1; ++i) {
+            for (int j = 1; j < cols - 1; ++j) {
+                int idx = i * cols + j;
+                if (grid[idx] == 255) {
+                    int count = 0;
+                    for (int di = -1; di <= 1; ++di) {
+                        for (int dj = -1; dj <= 1; ++dj) {
+                            if (di == 0 && dj == 0) continue;
+                            int nidx = (i + di) * cols + (j + dj);
+                            if (grid[nidx] == 255) count++;
+                        }
+                    }
+                    if (count == 0) temp[idx] = 0;
+                }
+            }
+        }
+
+        grid = temp;
+    }
+
+public:
+    GridMapGenerator(const STLParser& parser, float res, float heightThresh)
+        : stlParser(parser), resolution(res), heightThreshold(heightThresh) {
+        // 栅格尺寸：cols对应X方向，rows对应Z方向（俯视图平面）
+        cols = static_cast<int>(std::ceil(parser.getWidth() / resolution));
+        rows = static_cast<int>(std::ceil(parser.getDepth() / resolution));
+        grid.resize(cols * rows, 255);  // 255=可通行（白色）
+        std::cout << "俯视图栅格尺寸: " << cols << "x" << rows << " (X方向列数×Z方向行数)\n";
+    }
+
+    void generate() {
+        const std::vector<Triangle>& triangles = stlParser.getTriangles();
+        float xMin = stlParser.getXMin();
+        float zMin = stlParser.getZMin();
+        float groundHeight = stlParser.getGroundHeight();
+        float actualThreshold = groundHeight + heightThreshold;  // 实际高度阈值
+
+        std::cout << "障碍物判定阈值: 高于地面" << heightThreshold << "米 (Y≥" << actualThreshold << ")\n";
+
+        int total = triangles.size();
+        int processed = 0;
+        int progressStep = std::max(1, total / 20);
+
+        for (const auto& tri : triangles) {
+            // 快速筛选：低于阈值的三角形跳过
+            if (tri.avgHeight <= actualThreshold) continue;
+
+            if (++processed % progressStep == 0) {
+                std::cout << "处理进度: " << (processed * 100 / total) << "%\r" << std::flush;
+            }
+
+            // 计算三角形在XZ平面的边界
+            float triXMin = std::min({tri.vertices[0].x, tri.vertices[1].x, tri.vertices[2].x});
+            float triXMax = std::max({tri.vertices[0].x, tri.vertices[1].x, tri.vertices[2].x});
+            float triZMin = std::min({tri.vertices[0].z, tri.vertices[1].z, tri.vertices[2].z});
+            float triZMax = std::max({tri.vertices[0].z, tri.vertices[1].z, tri.vertices[2].z});
+
+            // 转换为栅格坐标（扩大1格避免边缘丢失）
+            int jMin = static_cast<int>((triXMin - xMin) / resolution) - 1;
+            int jMax = static_cast<int>((triXMax - xMin) / resolution) + 1;
+            int iMin = static_cast<int>((triZMin - zMin) / resolution) - 1;
+            int iMax = static_cast<int>((triZMax - zMin) / resolution) + 1;
+
+            jMin = std::max(0, jMin);
+            jMax = std::min(cols - 1, jMax);
+            iMin = std::max(0, iMin);
+            iMax = std::min(rows - 1, iMax);
+
+            // 标记XZ平面内的障碍物栅格
+            for (int i = iMin; i <= iMax; ++i) {
+                for (int j = jMin; j <= jMax; ++j) {
+                    float x1 = xMin + j * resolution;
+                    float z1 = zMin + i * resolution;
+                    float x2 = x1 + resolution;
+                    float z2 = z1 + resolution;
+
+                    if (triangleIntersectsGrid(tri, x1, z1, x2, z2)) {
+                        int index = (rows - 1 - i) * cols + j;  // Z轴反转（图像坐标适配）
+                        if (index >= 0 && index < grid.size()) {
+                            grid[index] = 0;  // 0=障碍物（黑色）
+                        }
+                    }
+                }
+            }
+        }
+        std::cout << "处理进度: 100%\n";
+
+        // 后处理优化
+        postProcess();
+    }
+
+    bool savePGM(const std::string& filename) const {
+        std::ofstream file(filename, std::ios::binary);
+        if (!file) {
+            std::cerr << "无法创建PGM文件: " << filename << std::endl;
+            return false;
+        }
+        file << "P5\n" << cols << " " << rows << "\n255\n";
+        file.write(reinterpret_cast<const char*>(grid.data()), grid.size());
+        file.close();
+        return true;
+    }
+
+    bool saveYAML(const std::string& filename, const std::string& pgmFilename) const {
+        std::ofstream file(filename);
+        if (!file) return false;
+        file << "image: " << pgmFilename << "\n";
+        file << "resolution: " << resolution << "\n";
+        file << "origin: [" << stlParser.getXMin() << ", " << stlParser.getZMin() << ", 0.0]\n";  // XZ原点
+        file << "occupied_thresh: 0.65\nfree_thresh: 0.196\nnegate: 0\n";
+        return true;
+    }
+};
+
+int main(int argc, char* argv[]) {
+    // 默认参数（俯视图专用）
+    std::string stlFilename = "RMUC2025.STL";
+    std::string pgmFilename = "top_view.pgm";
+    std::string yamlFilename = "top_view.yaml";
+    float resolution = 0.1f;       // 10厘米/栅格
+    float heightThreshold = 0.15f; // 高于地面15厘米视为障碍物
+
+    // 命令行参数覆盖
+    if (argc > 1) stlFilename = argv[1];
+    if (argc > 2) pgmFilename = argv[2];
+    if (argc > 3) yamlFilename = argv[3];
+    if (argc > 4) resolution = std::stof(argv[4]);
+    if (argc > 5) heightThreshold = std::stof(argv[5]);
+
+    // 解析STL
+    STLParser parser;
+    std::cout << "解析STL文件: " << stlFilename << "...\n";
+    if (!parser.parse(stlFilename)) {
+        std::cerr << "解析失败" << std::endl;
+        return 1;
+    }
+
+    // 输出俯视图边界（XZ平面）
+    std::cout << "俯视图边界（XZ水平平面）:\n";
+    std::cout << "  X方向（横向）: " << parser.getXMin() << " - " << parser.getXMax() 
+              << " 宽度: " << parser.getWidth() << "米\n";
+    std::cout << "  Z方向（纵向）: " << parser.getZMin() << " - " << parser.getZMax() 
+              << " 深度: " << parser.getDepth() << "米\n";
+    std::cout << "  Y方向（高度）: " << parser.getYMin() << " - " << parser.getYMax() << "米\n";
+
+    // 生成俯视图
+    GridMapGenerator generator(parser, resolution, heightThreshold);
+    generator.generate();
+
+    // 保存结果
+    generator.savePGM(pgmFilename);
+    generator.saveYAML(yamlFilename, pgmFilename);
+
+    std::cout << "俯视图生成完成: " << pgmFilename << std::endl;
+    return 0;
+}
